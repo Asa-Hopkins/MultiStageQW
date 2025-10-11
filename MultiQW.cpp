@@ -84,61 +84,88 @@ float my_normcdfinvf (float a)
     return fmaf (-1.41421356f, my_erfcinvf (a + a), 0.0f);
 }
 
-//Changes made:
-//Deinterlace real and imaginary
-//Skip some unecessary calculations
-//  (when psi is real, first iteration where b2 is 0, etc)
-//pre-allocate where possible
-//Mark as restricted where possible
+void Clenshaw_step(float* b1, float* b2, float* hp, float* psi, const unsigned int n, float scale, float gamma, float coef){
+  //This function is a bit of a mess, originally it calculated b2 += H_G @ b1 by essentially using a fast walsh-hadamard transform
+  //But the first part of it is compute heavy enough that we can put bandwidth limited calculations next to it for free
+  //So now it does a full step of the Clenshaw algorithm, setting b2 = coef*psi + 2*(H @ b1) - b2
+  //Where H = (H_P - gamma*H_G) / scale
 
-void H_G(float* __restrict psi, float* __restrict psi2, const unsigned int n){
-  //Calculates psi2 += H_G @ psi
-  //Take into account that complex vectors are twice as long
-  //n += 1;
+  //Multiplying H_G by something is slow here as it'd require a multiplication on every "b += a"
+  //We rescale b2 and then scale the final result so that H_G has a coefficient of 1
+
+  // We set new_scale = -2*gamma/scale, then the calculation is
+  // b2 = new_scale * (H_G @ b1 - (H_P @ b1)/gamma - b2/new_scale)
+  // In the final step we add psi*coeff as it saves a second pass over b2
+  // At that point in the calculation, 
+
   const unsigned int N = (1 << n);
 
   Vec16f a;
   Vec16f b;
+  Vec16f H;
   int h = 16;
-  constexpr int max_cache = 18;
+  //(1 << max_cache) should line up with cache size in some sense
+  //Needs to be tuned for each machine ideally
+
+  constexpr int max_cache = 15;
+  float new_scale = -2.0f*gamma/scale;
+  float new_scale_inv = 1.0f/new_scale;
 
   //Use permutations for h<16 cases
+  //We do enough computation here that we can load some out-of-cache data for free
   for (int i = 0; i<N; i+=16){
-    a.load(psi+i);
-    b.load(psi2+i);
+    a.load(b1+i);
+    b.load(b2+i);
+
+    b *= -new_scale_inv;
+    H.load(hp+i);
+    b -= a*H/gamma;
 
     b += permute16<1, 0, 3, 2, 5, 4, 7, 6, 9, 8, 11, 10, 13, 12, 15, 14>(a);
     b += permute16<2, 3, 0, 1, 6, 7, 4, 5, 10, 11, 8, 9, 14, 15, 12, 13>(a);
     b += permute16<4, 5, 6, 7, 0, 1, 2, 3, 12, 13, 14, 15, 8, 9, 10, 11>(a);
     b += permute16<8, 9, 10, 11, 12, 13, 14, 15, 0, 1, 2, 3, 4, 5, 6, 7>(a);
-    b.store(psi2+i);
+
+    //For n larger than this, we can't fit vectors in cache anymore so these are
+    //guaranteed cache misses
+    if (n > max_cache){
+      for (h = 1 << max_cache; h < N; h*=2){
+        int temp = h&i ? -h : h;
+        a.load(b1 + i + temp);
+        b += a;
+      }
+    }
+
+    b.store(b2+i);
   }
 
   //The vector can be kept in cache for these sizes
-  //For now, this needs changing manually
-  if (n > 4){
-    int end = N < (1 << max_cache) ? N : 1 << max_cache;
+  int end = N < (1 << max_cache) ? N : 1 << max_cache;
+  //I want to keep this check outside the loop
+  if (coef != 0){
     for (int i = 0; i<N; i+=16){
-      b.load(psi2+i);
+      b.load(b2+i);
       for (h = 16; h < end; h*=2){
         int temp = h&i ? -h : h;
-        a.load(psi + i + temp);
+        a.load(b1 + i + temp);
         b += a;
       }
-    b.store(psi2+i);
+      b *= new_scale;
+      //add psi*coef
+      H.load(psi+i);
+      b += H*coef;
+      b.store(b2+i);
     }
-  }
-
-  //Cache can't save us so we have to suffer
-  if (n > max_cache){
+  } else {
     for (int i = 0; i<N; i+=16){
-      b.load(psi2+i);
-      for (h = 1 << max_cache; h < N; h*=2){
+      b.load(b2+i);
+      for (h = 16; h < end; h*=2){
         int temp = h&i ? -h : h;
-        a.load(psi + i + temp);
+        a.load(b1 + i + temp);
         b += a;
       }
-    b.store(psi2+i);
+      b *= new_scale;
+      b.store(b2+i);
     }
   }
   return;
@@ -193,53 +220,48 @@ ArrayXf Clenshaw(Eigen::Ref<VectorXf> coeffs,
   auto Re = [&](auto& x) -> decltype(auto) { return x.head(N); };
   auto Im = [&](auto& x) -> decltype(auto) { return x.tail(N); };
 
-  float scale_fac = 0.5f * scale / gamma;
-  float scale_inv = 2.0f / scale;
   bool first = true;
+
+  //On second iteration, b1 == 0 so could optimise for that
   bool second = false;
+  int im_coef = psi_real ? 0 : 1;
+  
   for (int r = coeffs.size() - 1; r > 0; --r) {
     while (abs(coeffs[r]) < 1e-6 && r > 0) --r;
 
     if (not first){
-      // Scale b2 by (0.5 * scale / gamma)
-      b2 *= scale_fac;
 
       // Apply H_G to (b1r,b1i) -> (b2r,b2i)
-      H_G(b1.data(), b2.data(), n);
-      H_G(b1.data()+N, b2.data()+N, n);
+      //Odd terms are imaginary
+      if (r&1){
 
-      // Compute b2 = (2/scale) * (H_P*b1 - gamma*b2)
-      Re(b2) = scale_inv * (H_P * Re(b1) - gamma * Re(b2));
-      Im(b2) = scale_inv * (H_P * Im(b1) - gamma * Im(b2));
+        Clenshaw_step(b1.data(), b2.data(), H_P.data(), psi.data()+N, n, scale, gamma, -im_coef*coeffs[r]);
+        Clenshaw_step(b1.data()+N, b2.data()+N, H_P.data(), psi.data(), n, scale, gamma, coeffs[r]);
+      } else {
+        Clenshaw_step(b1.data(), b2.data(), H_P.data(), psi.data(), n, scale, gamma, coeffs[r]);
+        Clenshaw_step(b1.data()+N, b2.data()+N, H_P.data(), psi.data()+N, n, scale, gamma, im_coef*coeffs[r]);
+      }
+
+    } else {
+      if (r&1){
+        if (not psi_real){Re(b2) -= Im(psi)*coeffs[r];}
+        Im(b2) += Re(psi)*coeffs[r];
+      }
+      else{
+        if (not psi_real){Im(b2) += Im(psi)*coeffs[r];}
+        Re(b2) += Re(psi)*coeffs[r];
+      }
     }
 
-    //Odd terms are imaginary
-    if (r&1){
-      if (not psi_real){b2.head(N) -= Im(psi)*coeffs[r];}
-      Im(b2) += Re(psi)*coeffs[r];
-    }
-    else{
-      if (not psi_real){Im(b2) += Im(psi)*coeffs[r];}
-      Re(b2) += Re(psi)*coeffs[r];
-    }
     second = first;
     first = false;
+
     // Swap b1 and b2 without actually copying
     std::swap(b1, b2);
   }
-
   // Final iteration
-  float c_final = scale / gamma;
-  b2 *= c_final;
-
-  H_G(b1.data(), b2.data(), n);
-  H_G(b1.data()+N, b2.data()+N, n);
-
-  float s_final = 1.0f / scale;
-  Re(b2) = s_final * (H_P * Re(b1) - gamma * Re(b2));
-  Im(b2) = s_final * (H_P * Im(b1) - gamma * Im(b2));
-
-  b2 += psi * coeffs[0];
+  Clenshaw_step(b1.data(), b2.data(), H_P.data(), psi.data(), n, 2.0*scale, gamma, coeffs[0]);
+  Clenshaw_step(b1.data()+N, b2.data()+N, H_P.data(), psi.data()+N, n, 2.0*scale, gamma, im_coef*coeffs[0]);
 
   return b2;
 }
@@ -323,6 +345,7 @@ int main(int argc, char* argv[]){
     state.setConstant(1);
     psi.head(N).setConstant(1/sqrt(N));
     psi.tail(N).setZero();
+    bool psi_real = true;
 
     //The way we calculate is prone to error so use a double
     double E = J.sum()/2;
@@ -392,7 +415,7 @@ int main(int argc, char* argv[]){
       //Have to calculate backwards to avoid modifying data that's still needed
       times(0,seq(placeholders::last,1,-1)) -= times(0,seq(placeholders::last-1,0,-1));
     }
-
+    
     for (int j = 0; j < samples; j++){
 
       //Loop through all the times and calculate the success probability
@@ -408,13 +431,17 @@ int main(int argc, char* argv[]){
           terms*=2;
           coeffs = Cheb(terms, onenorm*times(i,j));
         }
-        psi = Clenshaw(coeffs, psi, H_P, gamma, onenorm, j == 0);
+        psi = Clenshaw(coeffs, psi, H_P, gamma, onenorm, psi_real);
+        //Approximation errors make this method non-unitary so we renormalise
+        psi /= psi.matrix().norm();
+        psi_real = false;
       }
       success_probabilities(j) = psi[E_loc]*psi[E_loc] + psi[E_loc+N]*psi[E_loc+N];
 
       if (m != 1){
         psi.head(N).setConstant(1/sqrt(N));
         psi.tail(N).setZero();
+        psi_real = true;
       }
 
     }
