@@ -6,6 +6,7 @@
 #include <iostream>
 #include <random>
 #include <fstream>
+#include "ApproxTools/Chebyshev.hpp"
 
 #define PI 3.1415926535897932384626
 
@@ -171,35 +172,7 @@ void Clenshaw_step(float* b1, float* b2, float* hp, float* psi, const unsigned i
   return;
 }
 
-ArrayXf Cheb(unsigned int n, float scale){
-  //Returns n'th order Chebyshev expansion of exp(i*x*scale) on [-1,1]
-  //Uses an FFT to calculate expansions for sin and cos separately, and sum them
-  const std::complex<float> I(0.0,1.0);
-  Eigen::FFT<float> fft;
-  VectorXcf c(2*n);
-  VectorXcf s(2*n);
-
-  VectorXcf res1(2*n);
-  VectorXcf res2(2*n);
-
-  VectorXf out(n);
-  for (int i = 0; i < n; i++){
-    float temp = (2*i + 1)*PI/2/n;
-    c[i] = cos(cos(temp)*scale);
-    s[i] = sin(cos(temp)*scale);
-    c[i + n] = 0;
-    s[i + n] = 0;
-  }
-  fft.inv(res1,c);
-  fft.inv(res2,s);
-
-  for (int i = 0; i < n; i++){
-    float temp = PI*i/2/n;
-    out[i] = 4*real(exp(I*temp)*res1[i]) + 4.0f*real(exp(I*temp)*res2[i]);
-  }
-  out[0] /= 2.0f;
-  return out;
-}
+//Returns n'th order Chebyshev expansion of exp(i*x*scale) on [-1,1]
 
 ArrayXf Clenshaw(Eigen::Ref<VectorXf> coeffs,
                   Eigen::Ref<ArrayXf> psi,
@@ -227,14 +200,10 @@ ArrayXf Clenshaw(Eigen::Ref<VectorXf> coeffs,
   int im_coef = psi_real ? 0 : 1;
   
   for (int r = coeffs.size() - 1; r > 0; --r) {
-    while (abs(coeffs[r]) < 1e-6 && r > 0) --r;
-
     if (not first){
-
       // Apply H_G to (b1r,b1i) -> (b2r,b2i)
       //Odd terms are imaginary
       if (r&1){
-
         Clenshaw_step(b1.data(), b2.data(), H_P.data(), psi.data()+N, n, scale, gamma, -im_coef*coeffs[r]);
         Clenshaw_step(b1.data()+N, b2.data()+N, H_P.data(), psi.data(), n, scale, gamma, coeffs[r]);
       } else {
@@ -307,6 +276,8 @@ int main(int argc, char* argv[]){
   ArrayXf gammas(m);
   ArrayXf onenorms(m);
 
+  int total_terms = 0;
+
   ArrayXf H_P(N);
   ArrayXf psi(2*N);
 
@@ -373,8 +344,6 @@ int main(int argc, char* argv[]){
     }
     //We want to shift H_P to reduce the spectral radius
     //This doesn't change the result but shortens the calculation
-    float kurt = (H_P*H_P*H_P*H_P).mean() / pow((H_P*H_P).mean(),2);
-    float skew = (H_P*H_P*H_P).mean() / pow((H_P*H_P).mean(),1.5);
     H_P -= (E_max + E_0)/2;
     float E_abs = (E_max - E_0)/2;
     //Now H_P has been calculated
@@ -384,6 +353,10 @@ int main(int argc, char* argv[]){
     float e = 2.718281828459045;
     float a = (1 - e_m)*b + e_m*my_normcdfinvf(1/(e*N));
     float HP2 = (2*(J*J).sum() - (J.matrix().diagonal().dot(J.matrix().diagonal())))/4;
+
+    //Can in theory use higher moments for a better approximation, but this is difficult in practice
+    //float kurt = (H_P*H_P*H_P*H_P).mean() / pow((H_P*H_P).mean(),2);
+    //float skew = (H_P*H_P*H_P).mean() / pow((H_P*H_P).mean(),1.5);
     //std::cout << (E_abs - a*sqrt(HP2))/E_abs << " " << kurt << " " << sqrt(HP2)*(my_normcdfinvf(1/(e*N)) - b)*sqrt(PI*PI/6)/E_abs << "\n";
     //std::cout << (H_P * H_P).sum()/N << " " << HP2 << " " << heur[n - 5]*n << " " << E_0 << "\n\n";
   
@@ -417,7 +390,6 @@ int main(int argc, char* argv[]){
     }
     
     for (int j = 0; j < samples; j++){
-
       //Loop through all the times and calculate the success probability
       for (int i = 0; i < m; i++){
         float gamma = gammas[i];
@@ -425,19 +397,16 @@ int main(int argc, char* argv[]){
         //H_P + gamma*H_G is conserved, then a change in H_G of 2n/gamma causes a change in H_P of -2n
         //So for stages with large gamma, H_P is predicted to saturate first.
 	if (1.0/tan(PI*(i+1)/(2*m + 2)) > 1) times(i,j) /= sqrt(1.0/tan(PI*(i+1)/(2*m + 2)));
-        int terms = 32 + (int)onenorm*times(i,j);
-        ArrayXf coeffs = Cheb(terms,onenorm*times(i,j));
-        while (abs(coeffs[terms - 1]) > 1e-6){
-          terms*=2;
-          coeffs = Cheb(terms, onenorm*times(i,j));
-        }
+        double scale = onenorm * times(i,j);
+        std::function<double(double)> f = [scale](double x) {return sin(scale*x) + cos(scale*x);};
+        ArrayXf coeffs = Chebyshev<double>::RCF_odd_even(f, 1e-6).coeffs.cast<float>().array();
+        total_terms += coeffs.size();
         psi = Clenshaw(coeffs, psi, H_P, gamma, onenorm, psi_real);
         //Approximation errors make this method non-unitary so we renormalise
         psi /= psi.matrix().norm();
         psi_real = false;
       }
       success_probabilities(j) = psi[E_loc]*psi[E_loc] + psi[E_loc+N]*psi[E_loc+N];
-
       if (m != 1){
         psi.head(N).setConstant(1/sqrt(N));
         psi.tail(N).setZero();
@@ -446,7 +415,7 @@ int main(int argc, char* argv[]){
 
     }
   results[problem] = success_probabilities.sum()/samples;
-  std::cout << results[problem] << "\n";
+  std::cout << results[problem] << " " << total_terms << "\n";
   }
   outFile.write(reinterpret_cast<const char*>(results), problems * sizeof(float));
 }

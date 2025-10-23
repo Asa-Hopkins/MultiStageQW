@@ -1,0 +1,3 @@
+[submodule "ApproxTools"]
+	path = ApproxTools
+	url = git@github.com:Asa-Hopkins/ApproxTools.git
