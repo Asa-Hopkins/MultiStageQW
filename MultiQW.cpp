@@ -276,14 +276,20 @@ int main(int argc, char* argv[]){
   ArrayXf gammas(m);
   ArrayXf onenorms(m);
 
-  int total_terms = 0;
-
+  //Problem energy levels
   ArrayXf H_P(N);
+  //This is used for calculating H_P, state(i,j) = sigma_z_i * sigma_z_j
+  ArrayXXf state(n,n);
+
+  //Our quantum register, with real and imaginary parts stored contiguously
   ArrayXf psi(2*N);
 
+  //Ising problem parameters
   ArrayXXf J(n,n);
-  ArrayXXf state(n,n);
+  ArrayXf h(n);
+
   
+  //Used for reading in parameters from files
   char buffer[4*n*(n+1)];
   double temp[n*(n+1)/2];
 
@@ -307,10 +313,13 @@ int main(int argc, char* argv[]){
         k++;
       }
     }
+
+    //Absorb 1/2 factor into J to follow paper
     J += J.transpose().eval();
+    J /= 2;
 
     for (int i = 0; i < n; i++){
-      J(i,i) = 2*temp[n*(n-1)/2 + i];
+      h(i) = temp[n*(n-1)/2 + i];
     }
 
     state.setConstant(1);
@@ -318,9 +327,14 @@ int main(int argc, char* argv[]){
     psi.tail(N).setZero();
     bool psi_real = true;
 
-    //The way we calculate is prone to error so use a double
-    double E = J.sum()/2;
+    //The way we calculate E is prone to error so use a double
+    //Start with the energy of the all -1s state
+    double E = J.sum() - h.sum();
     H_P[0] = E;
+
+    //In case first state is ground
+    E_0 = E;
+    E_max = E;
   
     //Use a grey code to efficiently evaluate all energies
     for (unsigned int i = 1; i < N; i++){
@@ -328,7 +342,7 @@ int main(int argc, char* argv[]){
       state.row(flip) *= -1;
       state.col(flip) *= -1;
       state(flip,flip) *= -1;
-      E += (2*(J.row(flip)*state.row(flip)).sum() - J(flip,flip)*state(flip,flip));
+      E += 4*(J.row(flip)*state.row(flip)).sum() - 2*h(flip)*state(flip,flip);
       H_P[grey(i)] = E;
 
       //keep track of ground state
@@ -348,11 +362,19 @@ int main(int argc, char* argv[]){
     float E_abs = (E_max - E_0)/2;
     //Now H_P has been calculated
 
+    // This formula is from https://math.stackexchange.com/questions/89030/expectation-of-the-maximum-of-gaussian-random-variables/89147#89147
+    //Calculates estimated maximum energy level using the known variance and assuming a normal distribution    
     float b = my_normcdfinvf(1/(float)N);
     float e_m = 0.577215664901532860;
     float e = 2.718281828459045;
     float a = (1 - e_m)*b + e_m*my_normcdfinvf(1/(e*N));
-    float HP2 = (2*(J*J).sum() - (J.matrix().diagonal().dot(J.matrix().diagonal())))/4;
+
+    //If the h was 0, we'd just want HP2 = 2*(J*J).sum()
+    //If we were to map to an n+1 qubit problem we'd get h/2 in both a row and a column
+    //so we need to add 2*2*(h/2).dot(h/2) = h.dot(h) 
+    float HP2 = 2*(J*J).sum() + (h*h).sum();
+
+    std::cout << HP2 << " " << E_0 << "\n";
 
     //Can in theory use higher moments for a better approximation, but this is difficult in practice
     //float kurt = (H_P*H_P*H_P*H_P).mean() / pow((H_P*H_P).mean(),2);
@@ -361,9 +383,10 @@ int main(int argc, char* argv[]){
     //std::cout << (H_P * H_P).sum()/N << " " << HP2 << " " << heur[n - 5]*n << " " << E_0 << "\n\n";
   
     //Calculate ideal short time
-    float short_t = 2*(J*J).sum() - 1.5*(J.matrix().diagonal().dot(J.matrix().diagonal()));
+    float short_t = 8*(J*J).sum() + 2*(h*h).sum();
     short_t = sqrt(2*n/short_t);
 
+    //Should really use higher quality RNG
     std::random_device rd;
     std::mt19937 gen(123);
     std::uniform_real_distribution<float> rand_t(short_t, 2*short_t);
@@ -400,7 +423,6 @@ int main(int argc, char* argv[]){
         double scale = onenorm * times(i,j);
         std::function<double(double)> f = [scale](double x) {return sin(scale*x) + cos(scale*x);};
         ArrayXf coeffs = Chebyshev<double>::RCF_odd_even(f, 1e-6).coeffs.cast<float>().array();
-        total_terms += coeffs.size();
         psi = Clenshaw(coeffs, psi, H_P, gamma, onenorm, psi_real);
         //Approximation errors make this method non-unitary so we renormalise
         psi /= psi.matrix().norm();
@@ -415,7 +437,7 @@ int main(int argc, char* argv[]){
 
     }
   results[problem] = success_probabilities.sum()/samples;
-  std::cout << results[problem] << " " << total_terms << "\n";
+  std::cout << results[problem] << "\n";
   }
   outFile.write(reinterpret_cast<const char*>(results), problems * sizeof(float));
 }
