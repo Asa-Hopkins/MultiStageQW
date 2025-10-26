@@ -374,7 +374,7 @@ int main(int argc, char* argv[]){
     //so we need to add 2*2*(h/2).dot(h/2) = h.dot(h) 
     float HP2 = 2*(J*J).sum() + (h*h).sum();
 
-    std::cout << HP2 << " " << E_0 << "\n";
+    //std::cout << HP2 << " " << E_0 << "\n";
 
     //Can in theory use higher moments for a better approximation, but this is difficult in practice
     //float kurt = (H_P*H_P*H_P*H_P).mean() / pow((H_P*H_P).mean(),2);
@@ -382,28 +382,45 @@ int main(int argc, char* argv[]){
     //std::cout << (E_abs - a*sqrt(HP2))/E_abs << " " << kurt << " " << sqrt(HP2)*(my_normcdfinvf(1/(e*N)) - b)*sqrt(PI*PI/6)/E_abs << "\n";
     //std::cout << (H_P * H_P).sum()/N << " " << HP2 << " " << heur[n - 5]*n << " " << E_0 << "\n\n";
   
-    //Calculate ideal short time
-    float short_t = 8*(J*J).sum() + 2*(h*h).sum();
-    short_t = sqrt(2*n/short_t);
 
     //Should really use higher quality RNG
-    std::random_device rd;
-    std::mt19937 gen(123);
-    std::uniform_real_distribution<float> rand_t(short_t, 2*short_t);
+    std::mt19937 gen(29552825458725);
 
     //Calculate gammas, upper bounds on spectral radius and generate evolution times.
+    //Old heuristic
+    //gammas[i] = heur[n - 5]/tan(PI*(i+1)/(2*m + 2));
+    for (int i = 0; i<m; i++){gammas[i] = a*sqrt(HP2)/tan(PI*(i+1)/(2*m + 2))/n;}
+    float total_t = 0;
+    //Calculate first and last stage times
+    float delta2 = 16*(J*J).sum() + 4*(h*h).sum();
+
     for (int i = 0; i<m; i++){
-      gammas[i] = a*sqrt(HP2)/tan(PI*(i+1)/(2*m + 2))/n;
 
-      //Old heuristic
-      //gammas[i] = heur[n - 5]/tan(PI*(i+1)/(2*m + 2));
+      //The denominator for the last stage should be gamma*(a - n*E_0) where a is the sum of energy levels one bit flip from the ground state
+      //I estimate "a" as n times the mean of a half-normal distribution with variance <(delta_ij)^2 / n>
+      //This seems to consistently under-estimate by a factor of 1.5 - 2, which is fine
+      float last_denom = sqrt(2/PI) * gammas[i] * sqrt(n * delta2);
 
+      //estimate expected change in <H_G> for this stage
+      float gamma_last = (i == 0) ? 1 : gammas[i - 1] / sqrt(1 + gammas[i - 1]*gammas[i - 1]);
+      float gamma_next = (i+1 == m) ? 0 : gammas[i + 1] / sqrt(1 + gammas[i + 1]*gammas[i + 1]);
+      float dH = gamma_last - gamma_next;
+
+      //It's possible to write the heuristics in terms of either <H_P> or <H_G>
+      //The <H_P> one has an extra approximation though so I use <H_G> for now 
+      float first_t = sqrt(4*n*dH/delta2);
+      float last_t = sqrt(2*n*dH/last_denom);
+      float short_t;
+      //No harm in evolving too long so we pick the longest, except the first stage which we know exactly
+      if (i == 0){short_t = first_t;}
+      else{short_t = std::max(first_t, last_t);}
+      std::uniform_real_distribution<float> rand_t(short_t, 2*short_t);
+      total_t += short_t;
       for(int j = 0; j < samples; j++) {
         times(i,j) = rand_t(gen);
       }
-
     }
-    std::sort(gammas.begin(), gammas.end(), std::greater<float>());
+    std::cout << total_t << " ";
 
     //Optimisation for single-stage
     if (m == 1){
@@ -417,9 +434,7 @@ int main(int argc, char* argv[]){
       for (int i = 0; i < m; i++){
         float gamma = gammas[i];
         float onenorm = (E_abs + gamma*n);
-        //H_P + gamma*H_G is conserved, then a change in H_G of 2n/gamma causes a change in H_P of -2n
-        //So for stages with large gamma, H_P is predicted to saturate first.
-	if (1.0/tan(PI*(i+1)/(2*m + 2)) > 1) times(i,j) /= sqrt(1.0/tan(PI*(i+1)/(2*m + 2)));
+
         double scale = onenorm * times(i,j);
         std::function<double(double)> f = [scale](double x) {return sin(scale*x) + cos(scale*x);};
         ArrayXf coeffs = Chebyshev<double>::RCF_odd_even(f, 1e-6).coeffs.cast<float>().array();
