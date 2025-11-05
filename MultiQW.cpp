@@ -267,7 +267,7 @@ int main(int argc, char* argv[]){
 
   std::ifstream file(filename, std::ios::binary);
 
-  //Seek to beginning, each problem has (n-1)*n parameters, and a float has 4 bytes.
+  //Seek to beginning, each problem has (n+1)*n/2 parameters, and a double has 8 bytes.
   file.seekg(4*(n+1)*n*start, file.beg);
 
   Eigen::ArrayXXf times(m,samples);
