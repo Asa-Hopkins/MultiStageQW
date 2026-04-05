@@ -399,17 +399,17 @@ int main(int argc, char* argv[]){
       //The denominator for the last stage should be gamma*(a - n*E_0) where a is the sum of energy levels one bit flip from the ground state
       //I estimate "a" as n times the mean of a half-normal distribution with variance <(delta_ij)^2 / n>
       //This seems to consistently under-estimate by a factor of 1.5 - 2, which is fine
-      float last_denom = sqrt(2/PI) * gammas[i] * sqrt(n * delta2);
+      float last_denom = gammas[i] * sqrt(2 * n * delta2 / PI);
 
       //estimate expected change in <H_G> for this stage
       float gamma_last = (i == 0) ? 1 : gammas[i - 1] / sqrt(1 + gammas[i - 1]*gammas[i - 1]);
       float gamma_next = (i+1 == m) ? 0 : gammas[i + 1] / sqrt(1 + gammas[i + 1]*gammas[i + 1]);
-      float dH = gamma_last - gamma_next;
+      float dE = 2*n*(gamma_last - gamma_next);
 
       //It's possible to write the heuristics in terms of either <H_P> or <H_G>
       //The <H_P> one has an extra approximation though so I use <H_G> for now 
-      float first_t = sqrt(4*n*dH/delta2);
-      float last_t = sqrt(2*n*dH/last_denom);
+      float first_t = sqrt(2*dE/delta2);
+      float last_t = sqrt(dE/last_denom);
       float short_t;
       //No harm in evolving too long so we pick the longest, except the first stage which we know exactly
       if (i == 0){short_t = first_t;}
