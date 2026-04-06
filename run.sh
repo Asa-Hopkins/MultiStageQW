@@ -25,7 +25,7 @@ elif [ "$dataset" == "Adam" ]; then
     m_values=(1 2 5 10 20)
 elif [ "$dataset" == "Inf" ]; then
   data_dir="./data/Adam"   # same source data as Adam
-  n_values=(5 6)   # hard limit due to memory: N^2 * m floats per problem
+  n_values=(5 6 7 8 9 10 11 12)   # hard limit due to memory: N^2 * m floats per problem
   m_values=(1 2 5 10 20)
   binary="./InfQW"
   output_dir="./results/Inf"
@@ -33,6 +33,8 @@ else
     echo "Unknown dataset '$dataset'. Choose 'Tim', 'Adam' or 'Inf'."
     exit 1
 fi
+
+mkdir -p "$output_dir"
 
 for n in "${n_values[@]}"; do
     filename="${data_dir}/SK_${n}n"
@@ -55,6 +57,7 @@ for n in "${n_values[@]}"; do
         extra_problems=$((num_problems % num_threads))
 
         output_file="${output_dir}/output_${n}_${m}"
+
         # Pre-allocate the file with the right number of bytes (4 bytes per float result)
         truncate -s $((num_problems * 4)) "$output_file"
 
