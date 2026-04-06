@@ -12,24 +12,27 @@ The aim of the method here is to provide reasonable choices for hopping rate and
 - The submodule [ApproxTools](https://github.com/Asa-Hopkins/ApproxTools) has some optional requirements 
 
 ## Getting Started
-Once Eigen and VCL2 are installed, then clone everything with
-`git clone --recurse-submodules https://github.com/Asa-Hopkins/MultiStageQW/
-cd MultiStageQW`
+Once Eigen and VCL2 are installed, then clone everything with \
+`git clone --recurse-submodules https://github.com/Asa-Hopkins/MultiStageQW/` \
+`cd MultiStageQW`
 
-Then build with 
+Then build with \
 `g++ -O3 -march=native MultiQW.cpp -o MultiQW`
 
 ## Example Usage
 The inputs to the program are:
 `n` - number of spins per problem
 `m` - number of walk stages
-`filename` - the name of the file containing problem instances. These instances should have `n(n+1)/2` entries each, in double precision. The first `(n-1)*n` are the upper triangle of the J matrix, and the rest are the h vector.
+`filename` - the name of the file containing problem instances. These instances should have `n(n+1)/2` entries each, in double precision. The first `n(n-1)/2` are the upper triangle of the J matrix, and the rest are the h vector.
 
-The next two inputs are optional:
+The next three inputs are optional:
 `start` - which problem to start one
 `problems` - how many problems to solve
+`output_dir` - directory to write results to (e.g. ./results/Adam)
 
-These are provided for easier multi-threading, since doing multiple problems at once is easily parallelised. The `run.sh` file allows for easier multi-threading. It requires some modification to use as it loops through a given list of `n` and `m` values for a given file.
+These are provided for easier multi-threading, since doing multiple problems at once is easily parallelised. 
+`run.sh` handles parallelisation automatically. Pass the number of threads and the dataset name (Tim or Adam) and it will reproduce the data used in my paper.
+It should be easy enough to modify for custom datasets.
 
 As an explicit example, the command
 `./MultiQW 10 2 data/AdamData/SK_10n`

@@ -85,6 +85,14 @@ float my_normcdfinvf (float a)
     return fmaf (-1.41421356f, my_erfcinvf (a + a), 0.0f);
 }
 
+//This is the SplitMix64 PRNG, which I use to generate seeds for C++'s Mersene Twister
+uint64_t seed_hash(uint64_t x) {
+    x += 0x9e3779b97f4a7c15;
+    x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9;
+    x = (x ^ (x >> 27)) * 0x94d049bb133111eb;
+    return x ^ (x >> 31);
+}
+
 void Clenshaw_step(float* b1, float* b2, float* hp, float* psi, const unsigned int n, float scale, float gamma, float coef){
   //This function is a bit of a mess, originally it calculated b2 += H_G @ b1 by essentially using a fast walsh-hadamard transform
   //But the first part of it is compute heavy enough that we can put bandwidth limited calculations next to it for free
@@ -174,7 +182,7 @@ void Clenshaw_step(float* b1, float* b2, float* hp, float* psi, const unsigned i
 
 //Returns n'th order Chebyshev expansion of exp(i*x*scale) on [-1,1]
 
-ArrayXf Clenshaw(Eigen::Ref<VectorXf> coeffs,
+void Clenshaw(Eigen::Ref<VectorXf> coeffs,
                   Eigen::Ref<ArrayXf> psi,
                   Eigen::Ref<ArrayXf> H_P,
                   float gamma,
@@ -232,7 +240,7 @@ ArrayXf Clenshaw(Eigen::Ref<VectorXf> coeffs,
   Clenshaw_step(b1.data(), b2.data(), H_P.data(), psi.data(), n, 2.0*scale, gamma, coeffs[0]);
   Clenshaw_step(b1.data()+N, b2.data()+N, H_P.data(), psi.data()+N, n, 2.0*scale, gamma, im_coef*coeffs[0]);
 
-  return b2;
+  psi = b2;
 }
 
 
@@ -251,20 +259,18 @@ int main(int argc, char* argv[]){
   unsigned int start = 0;
   unsigned int problems = 2000;
 
-  float* results = (float*)malloc(problems*4);
-
   //Number of samples for Monte-Carlo integral
   int samples = 100;
 
-  if (argc == 6){
+  if (argc >= 6){
     start = atoi(argv[4]);
     problems = atoi(argv[5]);
   }
 
-  char output[20];
-  std::sprintf(output, "output_%d_%d", n, m);
-  std::ofstream outFile(output, std::ios::binary | std::ios::app);
+  std::string output_dir = (argc >= 7) ? argv[6] : "./results";
+  std::string output = output_dir + "/output_" + std::to_string(n) + "_" + std::to_string(m);
 
+  std::ofstream outFile(output, std::ios::binary | std::ios::in | std::ios::out);
   std::ifstream file(filename, std::ios::binary);
 
   //Seek to beginning, each problem has (n+1)*n/2 parameters, and a double has 8 bytes.
@@ -290,8 +296,9 @@ int main(int argc, char* argv[]){
 
   
   //Used for reading in parameters from files
-  char buffer[4*n*(n+1)];
   double temp[n*(n+1)/2];
+
+  long int base_seed = 29552825458725;
 
   for (int problem = 0; problem < problems; problem++){
 
@@ -299,9 +306,11 @@ int main(int argc, char* argv[]){
     double E_max = 0;
     unsigned int E_loc = 0;
 
+    //Initialise PRNG in a reproducible way that avoids correlations.
+    std::mt19937 gen(seed_hash(base_seed + start + problem));
+
     //Read next set of parameters
-    file.read(buffer, 4*n*(n+1));
-    std::memcpy(temp, buffer, 4*n*(n+1));
+    file.read(reinterpret_cast<char*>(temp), 4*n*(n+1));
 
     J.setConstant(0);
 
@@ -381,10 +390,6 @@ int main(int argc, char* argv[]){
     //float skew = (H_P*H_P*H_P).mean() / pow((H_P*H_P).mean(),1.5);
     //std::cout << (E_abs - a*sqrt(HP2))/E_abs << " " << kurt << " " << sqrt(HP2)*(my_normcdfinvf(1/(e*N)) - b)*sqrt(PI*PI/6)/E_abs << "\n";
     //std::cout << (H_P * H_P).sum()/N << " " << HP2 << " " << heur[n - 5]*n << " " << E_0 << "\n\n";
-  
-
-    //Should really use higher quality RNG
-    std::mt19937 gen(29552825458725);
 
     //Calculate gammas, upper bounds on spectral radius and generate evolution times.
     //Old heuristic
@@ -436,9 +441,10 @@ int main(int argc, char* argv[]){
         float onenorm = (E_abs + gamma*n);
 
         double scale = onenorm * times(i,j);
-        std::function<double(double)> f = [scale](double x) {return sin(scale*x) + cos(scale*x);};
+        auto f = [scale](double x) { return sin(scale * x) + cos(scale * x); };
+        
         ArrayXf coeffs = Chebyshev<double>::RCF_odd_even(f, 1e-6).coeffs.cast<float>().array();
-        psi = Clenshaw(coeffs, psi, H_P, gamma, onenorm, psi_real);
+        Clenshaw(coeffs, psi, H_P, gamma, onenorm, psi_real);
         //Approximation errors make this method non-unitary so we renormalise
         psi /= psi.matrix().norm();
         psi_real = false;
@@ -451,8 +457,11 @@ int main(int argc, char* argv[]){
       }
 
     }
-  results[problem] = success_probabilities.sum()/samples;
-  std::cout << results[problem] << "\n";
+
+  //Write results one at a time so less data is lost in a crash
+  float result = success_probabilities.sum() / samples;
+  outFile.seekp((start + problem) * sizeof(float));
+  outFile.write(reinterpret_cast<char*>(&result), sizeof(float));
+  std::cout << result << "\n";
   }
-  outFile.write(reinterpret_cast<const char*>(results), problems * sizeof(float));
 }
