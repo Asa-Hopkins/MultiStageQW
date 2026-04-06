@@ -37,9 +37,6 @@ def int_part(n):
         y = x + y - 1
         yield tuple(a[: k + 1])
 
-def flatten(xss):
-    return [x for xs in xss for x in xs]
-
 #Idea - instead of pairing with all numbers, we can start always with a 0 in the first pair
 #then, all unused indices of equal repetition are completely equivalent, so we pick the lowest one
         
@@ -83,7 +80,6 @@ def generate_unique_pairings(numbers):
     return results
 
 pairings = []
-t = time.time()
 
 for ints in int_part(m):
     if ints[-1] > m//2:
@@ -93,9 +89,7 @@ for ints in int_part(m):
     numbers = np.array(ints)*2
     
     pairings.extend(generate_unique_pairings(numbers))
-    
-print(time.time() - t, len(pairings))
-t = time.time()
+
 unique = {}
 
 #Generate an Ising problem
@@ -107,13 +101,12 @@ J -= np.diag(np.diag(J))
 states = all_states(m).T
 
 for pairing in pairings:
+    #Use einsum to perform the tensor contraction
+    #I find the input format very unintuitive
     args = [a for pair in pairing
             for a in [J,pair]]
     result = int(np.einsum(*args, optimize=True))
     unique[result] = pairing
-
-print(time.time() - t, len(unique))
-t = time.time()
 
 #We now have only the unique pairings, most likely
 num = len(unique)
@@ -142,13 +135,8 @@ for i in range(1,num):
             for a in [J,pair]]
         result = np.int64(np.einsum(*args, optimize=True))
         lsq_l[i,n] = result
-print(time.time() - t, len(pairings))
-t = time.time()
-       
+        
 a = np.linalg.solve(lsq_l, lsq_r)
-
-print(time.time() - t)
-t = time.time()
 
 #print(a / 2**m)
 print(np.int64(np.rint(a/2**m)))
