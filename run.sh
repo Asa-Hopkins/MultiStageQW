@@ -5,7 +5,7 @@
 
 if [ "$#" -ne 2 ]; then
     echo "Usage: $0 <num_threads> <dataset>"
-    echo "  dataset: Tim or Adam"
+    echo "  dataset: Tim, Adam or Inf"
     exit 1
 fi
 
@@ -15,15 +15,22 @@ dataset=$2
 # Configure dataset-specific parameters
 data_dir="./data/${dataset}"
 output_dir="./results/${dataset}"
+binary="./MultiQW"
 
 if [ "$dataset" == "Tim" ]; then
     n_values=(8 10 12 14 16 18)
-    m_values=(1 2 5 10 20)
+    m_values=(1 2 5 10 20 50)
 elif [ "$dataset" == "Adam" ]; then
     n_values=($(seq 5 18))
     m_values=(1 2 5 10 20)
+elif [ "$dataset" == "Inf" ]; then
+  data_dir="./data/Adam"   # same source data as Adam
+  n_values=(5 6)   # hard limit due to memory: N^2 * m floats per problem
+  m_values=(1 2 5 10 20)
+  binary="./InfQW"
+  output_dir="./results/Inf"
 else
-    echo "Unknown dataset '$dataset'. Choose 'Tim' or 'Adam'."
+    echo "Unknown dataset '$dataset'. Choose 'Tim', 'Adam' or 'Inf'."
     exit 1
 fi
 
@@ -35,15 +42,10 @@ for n in "${n_values[@]}"; do
         continue
     fi
 
-    # Determine the number of problems in this file
-    if [ "$dataset" == "Adam" ]; then
-        num_problems=2000
-    else
-        # Each problem consists of x*(x+1)/2 double precision values = 4*x*(x+1) bytes
-        bytes_per_problem=$((4 * n * (n + 1)))
-        file_size=$(stat -c%s "$filename")
-        num_problems=$((file_size / bytes_per_problem))
-    fi
+    # Each problem consists of x*(x+1)/2 double precision values = 4*x*(x+1) bytes
+    bytes_per_problem=$((4 * n * (n + 1)))
+    file_size=$(stat -c%s "$filename")
+    num_problems=$((file_size / bytes_per_problem))
 
     echo "Processing $filename: $num_problems problems"
 
@@ -62,7 +64,7 @@ for n in "${n_values[@]}"; do
 
             echo "  n=$n, m=$m, thread=$thread: problems $start_point to $((start_point + problems_to_read - 1))"
 
-            ./MultiQW "$n" "$m" "$filename" "$start_point" "$problems_to_read" "$output_dir" &
+            "$binary" "$n" "$m" "$filename" "$start_point" "$problems_to_read" "$output_dir" &
         done
 
         wait  # Wait for all threads of this m value to finish before moving on
