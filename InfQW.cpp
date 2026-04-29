@@ -96,8 +96,8 @@ int main(int argc, char* argv[]){
     Psi0.setConstant(1/sqrt(N));
 
     float HP2 = 2*(J*J).sum() + (h*h).sum();
-
-    gammas = compute_gammas(n,m,HP2);
+    float E_est = 0;
+    gammas = compute_gammas(n,m,HP2,E_est);
 
     // Diagonalise H = (H_P + gamma*H_G) / sqrt(1 + gamma^2) for each stage
     std::vector<MatrixXf> eigs(m);

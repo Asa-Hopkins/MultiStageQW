@@ -108,8 +108,6 @@ void Clenshaw_step(float* b1, float* b2, float* hp, float* psi, const unsigned i
   return;
 }
 
-//Returns n'th order Chebyshev expansion of exp(i*x*scale) on [-1,1]
-
 void Clenshaw(Eigen::Ref<VectorXf> coeffs,
                   Eigen::Ref<ArrayXf> psi,
                   Eigen::Ref<ArrayXf> H_P,
@@ -236,23 +234,23 @@ int main(int argc, char* argv[]){
     //If we were to map to an n+1 qubit problem we'd get h/2 in both a row and a column
     //so we need to add 2*2*(h/2).dot(h/2) = h.dot(h) 
     float HP2 = 2*(J*J).sum() + (h*h).sum();
-
+    float E_est = 0;
     //Can in theory use higher moments for a better approximation, but this is difficult in practice
 
-    //Calculate gammas, upper bounds on spectral radius and generate evolution times.
-    gammas = compute_gammas(n,m,HP2);
+    //Calculate gammas, estimate of energy spread and generate evolution times.
+    gammas = compute_gammas(n,m,HP2,E_est);
 
     float total_t = 0;
     //Calculate first and last stage times
+    //For the average squared energy difference, we use the J' formula from Appendix B
     float delta2 = 16*(J*J).sum() + 4*(h*h).sum();
 
     float short_t;
     for (int i = 0; i<m; i++){
 
-      //The denominator for the last stage should be gamma*(a - n*E_0) where a is the sum of energy levels one bit flip from the ground state
-      //I estimate "a" as n times the mean of a half-normal distribution with variance <(delta_ij)^2 / n>
-      //This seems to consistently under-estimate by a factor of 1.5 - 2, which is fine
-      float last_denom = gammas[i] * sqrt(2 * n * delta2 / PI);
+      //The denominator for the last stage should be gamma*4*|E_0|, so we use E_est from our earlier heuristic
+      //I use only 2*E_est as it's important to overestimate evolution time rather than underestimate. 
+      float last_denom = gammas[i] * 2 * E_est;
 
       //estimate expected change in <H_G> for this stage
       float gamma_last = (i == 0) ? 1 : gammas[i - 1] / sqrt(1 + gammas[i - 1]*gammas[i - 1]);

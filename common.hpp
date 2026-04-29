@@ -151,19 +151,19 @@ void load_problem(std::ifstream& file, unsigned int n,
 }
 
 // Compute per-problem gammas
-Eigen::ArrayXf compute_gammas(unsigned int n, unsigned int m, float HP2){
+Eigen::ArrayXf compute_gammas(unsigned int n, unsigned int m, float HP2, float& E_est){
   // This formula is from https://math.stackexchange.com/questions/89030/expectation-of-the-maximum-of-gaussian-random-variables/89147#89147
   //Calculates estimated maximum energy level using the known variance and assuming a normal distribution    
   unsigned int N = 1 << n;
   float b = my_normcdfinvf(1/(float)N);
   float e_m = 0.577215664901532860;
   float e = 2.718281828459045;
-  float a = (1 - e_m)*b + e_m*my_normcdfinvf(1/(e*N));
+  E_est = (1 - e_m)*b + e_m*my_normcdfinvf(1/(e*N));
 
   Eigen::ArrayXf gammas(m);
   //old heuristic
   //gammas[i] = heur[n - 5]/tan(PI*(i+1)/(2*m + 2));
-  for (int i = 0; i<m; i++){gammas[i] = a*sqrt(HP2)/tan(PI*(i+1)/(2*m + 2))/n;}
+  for (int i = 0; i<m; i++){gammas[i] = E_est*sqrt(HP2)/tan(PI*(i+1)/(2*m + 2))/n;}
 
   return gammas;
 }

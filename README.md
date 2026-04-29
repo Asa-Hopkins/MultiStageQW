@@ -35,7 +35,7 @@ These are provided for easier multi-threading, since doing multiple problems at 
 It should be easy enough to modify for custom datasets.
 
 As an explicit example, the command
-`./MultiQW 10 2 data/AdamData/SK_10n`
+`./MultiQW 10 2 data/Adam/SK_10n`
 will recreate the data for one of the data points in Figure 4 of my paper.
 Currently the code spits out a unique file for each (n,m) pair, which is a bit messy but works. These files contain a floating point value for each problem, describing the probability of finding the ground state for that problem
 

@@ -25,7 +25,7 @@ elif [ "$dataset" == "Adam" ]; then
     m_values=(1 2 5 10 20)
 elif [ "$dataset" == "Inf" ]; then
   data_dir="./data/Adam"   # same source data as Adam
-  n_values=(5 6 7 8 9 10)   # hard limit due to memory: N^2 * m floats per problem
+  n_values=(5 6 7 8 9 10)
   m_values=(1 2 5 10 20)
   binary="./InfQW"
   output_dir="./results/Inf"
