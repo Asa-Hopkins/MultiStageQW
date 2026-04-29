@@ -159,11 +159,11 @@ Eigen::ArrayXf compute_gammas(unsigned int n, unsigned int m, float HP2, float& 
   float e_m = 0.577215664901532860;
   float e = 2.718281828459045;
   E_est = (1 - e_m)*b + e_m*my_normcdfinvf(1/(e*N));
-
+  E_est *= sqrt(HP2);
   Eigen::ArrayXf gammas(m);
   //old heuristic
   //gammas[i] = heur[n - 5]/tan(PI*(i+1)/(2*m + 2));
-  for (int i = 0; i<m; i++){gammas[i] = E_est*sqrt(HP2)/tan(PI*(i+1)/(2*m + 2))/n;}
+  for (int i = 0; i<m; i++){gammas[i] = E_est/tan(PI*(i+1)/(2*m + 2))/n;}
 
   return gammas;
 }
