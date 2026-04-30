@@ -1,43 +1,61 @@
 # Multistage-QW
 
 ## About The Project
-This repository contains the code used for simulating multi-stage quantum walks in my paper, ["Multi-stage quantum walks for finding Ising ground states"](https://arxiv.org/abs/2511.01312).
+This repository contains the simulation code for the paper ["Multi-stage quantum walks for finding Ising ground states"](https://arxiv.org/abs/2511.01312).
+
 The main innovations here are an improvement to the classic method of Chebyshev expansion for evaluating matrix exponentials, and a matrix-free method of calculating H|ψ>. The implementation is vectorised and tries to be efficient with cache usage and memory accesses, as memory bandwidth is the bottleneck.
 
 The aim of the method here is to provide reasonable choices for hopping rate and evolution time for each stage without needing to tune or optimise them. I invite you to try different heuristics and see what works, but for now only the heuristics in my paper above are available.
 
 ## Requirements
+
 - [Eigen 3.4+](https://libeigen.gitlab.io/docs/)
-- [Vector Class Libary 2](https://github.com/vectorclass/version2)
-- The submodule [ApproxTools](https://github.com/Asa-Hopkins/ApproxTools) has some optional requirements 
+- [Vector Class Library 2](https://github.com/vectorclass/version2)
+- The submodule [ApproxTools](https://github.com/Asa-Hopkins/ApproxTools) (see its repo for optional dependencies)
 
 ## Getting Started
-Once Eigen and VCL2 are installed, then clone everything with \
-`git clone --recurse-submodules https://github.com/Asa-Hopkins/MultiStageQW/` \
-`cd MultiStageQW`
 
-Then build with \
-`g++ -O3 -march=native MultiQW.cpp -o MultiQW`
+Clone with submodules and build:
 
-## Example Usage
-The inputs to the program are:
-`n` - number of spins per problem
-`m` - number of walk stages
-`filename` - the name of the file containing problem instances. These instances should have `n(n+1)/2` entries each, in double precision. The first `n(n-1)/2` are the upper triangle of the J matrix, and the rest are the h vector.
+```bash
+git clone --recurse-submodules https://github.com/Asa-Hopkins/MultiStageQW/
+cd MultiStageQW
+g++ -O3 -march=native MultiQW.cpp -o MultiQW
+```
 
-The next three inputs are optional:
-`start` - which problem to start one
-`problems` - how many problems to solve
-`output_dir` - directory to write results to (e.g. ./results/Adam)
+To enable verbose output (see [Verbose Mode](#verbose-mode) below), add `-DVERBOSE` to the build command:
 
-These are provided for easier multi-threading, since doing multiple problems at once is easily parallelised. 
-`run.sh` handles parallelisation automatically. Pass the number of threads and the dataset name (Tim or Adam) and it will reproduce the data used in my paper.
-It should be easy enough to modify for custom datasets.
+```bash
+g++ -O3 -march=native -DVERBOSE MultiQW.cpp -o MultiQW
+```
 
-As an explicit example, the command
-`./MultiQW 10 2 data/Adam/SK_10n`
-will recreate the data for one of the data points in Figure 4 of my paper.
-Currently the code spits out a unique file for each (n,m) pair, which is a bit messy but works. These files contain a floating point value for each problem, describing the probability of finding the ground state for that problem
+## Usage
+`./MultiQW n m filename [start] [problems] [output_dir]`
+
+| Argument | Description |
+|---|---|
+| `n` | Number of spins per problem |
+| `m` | Number of walk stages |
+| `filename` | Path to the file containing problem instances. Each instance has `n(n+1)/2` entries in double precision: the upper triangle of J followed by the h vector |
+| `start` | *(optional)* Index of the first problem to solve (default: 0) |
+| `problems` | *(optional)* Number of problems to solve (default: 2000) |
+| `output_dir` | *(optional)* Directory to write results to (default: `./results`) |
+
+The `start` and `problems` arguments make it easy to parallelise by running multiple instances over different ranges. `run.sh` handles this automatically — pass it the number of threads and dataset name (`Tim` or `Adam`) to reproduce the results from the paper.
+
+As an explicit example:
+
+```bash
+./MultiQW 10 2 data/Adam/SK_10n
+```
+
+reproduces one of the data points in Figure 4 of the paper.
+
+Results are written as a binary file of floats, one per problem, giving the success probability for each instance.
+
+## Verbose Mode
+
+Building with `-DVERBOSE` prints the heuristic gamma and t values for each stage, followed by the success probability, for every problem. This is needed for `compare.sh` which generates the file `walks.txt`.
 
 ## To-Do
 I want to add python bindings at some point for easier integration with other quantum software packages

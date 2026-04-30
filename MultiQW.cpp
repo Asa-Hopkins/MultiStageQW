@@ -193,6 +193,13 @@ int main(int argc, char* argv[]){
   std::string output_dir = (argc >= 7) ? argv[6] : "./results";
   std::string output = output_dir + "/output_" + std::to_string(n) + "_" + std::to_string(m);
 
+  #ifdef VERBOSE
+    std::cout << "Running program with n=" << n << ", m=" << m
+              << ", filename=" << filename
+              << ", start_point=" << start
+              << ", problems=" << problems << "\n";
+  #endif
+
   std::ofstream outFile(output, std::ios::binary | std::ios::in | std::ios::out);
   std::ifstream file(filename, std::ios::binary);
 
@@ -261,9 +268,15 @@ int main(int argc, char* argv[]){
       //The <H_P> one has an extra approximation though so I use <H_G> for now 
       float first_t = sqrt(2*dE/delta2);
       float last_t = sqrt(dE/last_denom);
+
       //No harm in evolving too long so we pick the longest, except the first stage which we know exactly
       if (i == 0){short_t = first_t;}
       else{short_t = std::max(first_t, last_t);}
+
+      #ifdef VERBOSE
+        std::cout << short_t << " " << gammas[i] << "\n";
+      #endif
+
       std::uniform_real_distribution<float> rand_t(short_t, 2*short_t);
       total_t += short_t;
       for(int j = 0; j < samples; j++) {
@@ -309,6 +322,6 @@ int main(int argc, char* argv[]){
   float result = success_probabilities.sum() / samples;
   outFile.seekp((start + problem) * sizeof(float));
   outFile.write(reinterpret_cast<char*>(&result), sizeof(float));
-  std::cout << result << "\n";
+  std::cout << result << "\n\n";
   }
 }

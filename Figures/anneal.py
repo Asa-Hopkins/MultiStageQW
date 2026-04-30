@@ -17,14 +17,15 @@ plt.rcParams.update({'errorbar.capsize': 1.5, 'lines.markeredgewidth': 0.5})
 def lookups():
     #We need functions that let us map a ratio of H_P and H_G to a point in the annealing schedule
     #For reference, we will use D-Wave's Fast Annealing schedule on Advantage2 1.6
+    #Multiply by 2*pi to write in terms of h-bar rather than h
     s, A, B = [], [], []
     with open('../data/DWave/Advantage2_1_6.csv') as f:
         for row in csv.reader(f):
             if row[0] == 's':
                 continue
             s.append(float(row[0]))
-            A.append(float(row[1]))
-            B.append(float(row[2]))
+            A.append(float(row[1])*2*np.pi)
+            B.append(float(row[2])*2*np.pi)
 
     # Trim to where A reaches zero
     if 0 in A:
@@ -177,7 +178,8 @@ def run_annealing(n, problem_num, walk_data, m_values):
 
     # Normalise J
     J = np.tril(J + J.T)
-    scale = np.max([np.max(np.abs(J)), np.max(np.abs(h)) / 4])
+    #D-Wave only supports J's and h's in this range
+    scale = np.max([np.max(np.abs(J)), np.max(np.abs(h)) / 2])
     J /= scale
     h /= scale
 
@@ -189,7 +191,7 @@ def run_annealing(n, problem_num, walk_data, m_values):
     for m in m_values:
         if (m, problem_num) in walk_data:
             t, p = walk_time(m, problem_num, walk_data)
-            walk_times.append(1e9 * t)
+            walk_times.append(1e9 * t * scale)
             walk_probs.append(p)
 
     # Set up QuTiP operators
@@ -201,9 +203,9 @@ def run_annealing(n, problem_num, walk_data, m_values):
     psi0 = qt.Qobj(np.ones(N) / N**0.5)
 
     anneal_x, anneal_y = [], []
-    for T in [2**(a/8) for a in range(48)]:
+    for T in [2**(a/8) for a in range(-36,24)]:
         args = {'T': T}
-        t_list = np.linspace(0, T, 2 + int(T)//3)
+        t_list = np.linspace(0, T, 2 + int(T)*2)
         result = qt.sesolve(H, psi0, t_list, args=args)
         prob = qt.expect(E0.dag() * E0, [result.states[-1]])[0]
         anneal_x.append(anneal_time(T) * 1e9)
