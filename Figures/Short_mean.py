@@ -29,12 +29,6 @@ def load_results(file_pattern):
             print(f"Skipping malformed filename: {filename}")
             continue
 
-        if m == 50:
-            continue
-        
-        if n == 18:
-            continue
-
         arr = np.fromfile(filepath, dtype=np.float32)
         data.setdefault(m, {})[n] = arr
 
@@ -46,15 +40,30 @@ def plot_results(results, outfile, marker = None):
     func = lambda a: np.log2(np.median(a))
 
     for m in sorted(results):
+        color = None
+        if "hard" in outfile:
+            if m == 20:
+                continue
+            if m == 50:
+                color = "black"
         xye = np.array([(n, *bootstrap(results[m][n], func)) for n in results[m]]).T
         x, y, yerr = xye[:, np.argsort(xye[0])]
-        plt.errorbar(x, y, yerr=yerr, label=f'{m} stage quantum walk', lw=0.75, marker=marker)
+        2
+        temp = plt.errorbar(x, y, yerr=yerr, label=f'{m} stage quantum walk', lw=0.75, marker=marker, linestyle="--", alpha = 0.7, color = color)
+        plt.scatter(x, y, color=temp[0].get_color(), marker='x', lw=0.5)
         
         plt.gca().xaxis.set_major_locator(plt.MaxNLocator(integer=True))
         plt.gca().xaxis.set_minor_locator(plt.MultipleLocator(1))
-        
-        reg = scipy.stats.linregress(x, y)
-        reg_points.append([m, reg.slope, reg.stderr, m, reg.intercept, reg.intercept_stderr])
+        if "hard" not in outfile:
+            reg = scipy.stats.linregress(x, y)
+            plt.plot(x, x*reg.slope + reg.intercept, color = temp[0].get_color())
+            plt.ylim(-8,0)
+
+            x_int = -reg.intercept/reg.slope
+            #Standard formula for combining errors
+            x_int_err = abs(x_int) * np.sqrt((reg.intercept_stderr / reg.intercept)**2 + (reg.stderr / reg.slope)**2)
+            print(outfile, reg.slope, reg.stderr)
+            reg_points.append([m, reg.slope, reg.stderr, m, x_int, x_int_err])
     
     plt.xlabel("Number of Spins")
     plt.ylabel(r"$\log_2$ of Success Probability")
@@ -68,7 +77,7 @@ def plot_regression(reg_points_list, labels, outfile_scaling, outfile_intercept)
         x, y, yerr = reg_points.T[:3]
         plt.errorbar(x, y, yerr=yerr, label=label, lw=0.75)
     
-        plt.gca().xaxis.set_major_locator(plt.MaxNLocator(integer=True))
+        plt.gca().xaxis.set_major_locator(plt.MultipleLocator(5))
         plt.gca().xaxis.set_minor_locator(plt.MultipleLocator(1))
 
     plt.xlabel("Number of Stages")
@@ -80,7 +89,7 @@ def plot_regression(reg_points_list, labels, outfile_scaling, outfile_intercept)
         x, y, yerr = reg_points.T[3:]
         plt.errorbar(x, y, yerr=yerr, label=label, lw=0.75)
 
-        plt.gca().xaxis.set_major_locator(plt.MaxNLocator(integer=True))
+        plt.gca().xaxis.set_major_locator(plt.MultipleLocator(5))
         plt.gca().xaxis.set_minor_locator(plt.MultipleLocator(1))
         
     plt.xlabel("Number of Stages")
@@ -96,6 +105,10 @@ if __name__ == "__main__":
     reg1 = plot_results(adam_results, 'short_median.pdf')
     reg2 = plot_results(tim_results,  'hard_median.pdf')
     reg3 = plot_results(inf_results,  'inf_median.pdf', marker = 'x')
+    
 
-    labels = ['Short time average', 'Short time average, hard problems', 'Infinite time average']
-    plot_regression([reg1, reg2, reg3], labels, 'scaling_cropped.pdf', 'intercept.pdf')
+    labels = ['Short time average', 'Infinite time average']
+    plot_regression([reg1, reg3], labels, 'scaling_cropped.pdf', 'intercept.pdf')
+
+#    labels = ['Short time average', 'Short time average, hard problems', 'Infinite time average']
+#    plot_regression([reg1, reg2, reg3], labels, 'scaling_cropped.pdf', 'intercept.pdf')
