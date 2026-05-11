@@ -12,7 +12,6 @@
 #include <functional>
 #include <unordered_map>
 
-
 #define PI 3.1415926535897932384626
 
 //Positions and weights for 16-point Gauss-Legendre quadrature on [0,1]
@@ -25,20 +24,6 @@ static float gauss_w[16] = {0.01357623,0.03112676,0.04757926,0.06231449,0.074797
   ,0.06231449,0.04757926,0.03112676,0.01357623};
 
 //Degree 50 polynomials representing D-Wave's anneal schedules
-static Chebyshev B = Chebyshev(Eigen::VectorXd{{3.68081788e+00,-5.76444312e+00,2.41135844e+00,5.91443887e-02
-  ,-5.77632382e-01,9.00480155e-02,1.95314094e-01,-6.84152842e-02
-  ,-7.22267961e-02,4.12793317e-02,2.69797497e-02,-2.32410855e-02
-  ,-9.59706231e-03,1.26449520e-02,2.95368965e-03,-6.72140120e-03
-  ,-5.41861790e-04,3.49614659e-03,-2.16914921e-04,-1.77973807e-03
-  ,3.69563521e-04,8.80163180e-04,-3.21810047e-04,-4.22370696e-04
-  ,2.35108111e-04,1.91376120e-04,-1.53958194e-04,-8.25203784e-05
-  ,9.75392989e-05,2.93215065e-05,-5.66081028e-05,-9.05111448e-06
-  ,3.40625335e-05,-1.53551977e-06,-1.72793204e-05,1.97749519e-06
-  ,1.08587974e-05,-4.11170947e-06,-4.18812143e-06,1.65526240e-06
-  ,3.37999190e-06,-2.68628110e-06,-2.59977749e-07,4.32901962e-07
-  ,1.11268446e-06,-1.37230953e-06,4.75674337e-07,-1.01325087e-07
-  ,5.45893072e-07,-6.71145693e-07,3.35616369e-07}});
-
 static Chebyshev A = Chebyshev(Eigen::VectorXd{{6.38848959e+00,7.70957975e+00,1.39031655e+00,-8.24354615e-01
   ,-1.33445280e-01,2.85385629e-01,-1.78152697e-02,-1.18273685e-01
   ,3.53310126e-02,5.03215648e-02,-2.88066343e-02,-2.05631499e-02
@@ -53,6 +38,23 @@ static Chebyshev A = Chebyshev(Eigen::VectorXd{{6.38848959e+00,7.70957975e+00,1.
   ,-4.74228293e-06,-7.03894484e-07,2.77913305e-06,6.09620139e-07
   ,-1.43702584e-06,2.50008259e-07,6.08860953e-07}});
 
+static Chebyshev B = Chebyshev(Eigen::VectorXd{{3.68081788e+00,-5.76444312e+00,2.41135844e+00,5.91443887e-02
+  ,-5.77632382e-01,9.00480155e-02,1.95314094e-01,-6.84152842e-02
+  ,-7.22267961e-02,4.12793317e-02,2.69797497e-02,-2.32410855e-02
+  ,-9.59706231e-03,1.26449520e-02,2.95368965e-03,-6.72140120e-03
+  ,-5.41861790e-04,3.49614659e-03,-2.16914921e-04,-1.77973807e-03
+  ,3.69563521e-04,8.80163180e-04,-3.21810047e-04,-4.22370696e-04
+  ,2.35108111e-04,1.91376120e-04,-1.53958194e-04,-8.25203784e-05
+  ,9.75392989e-05,2.93215065e-05,-5.66081028e-05,-9.05111448e-06
+  ,3.40625335e-05,-1.53551977e-06,-1.72793204e-05,1.97749519e-06
+  ,1.08587974e-05,-4.11170947e-06,-4.18812143e-06,1.65526240e-06
+  ,3.37999190e-06,-2.68628110e-06,-2.59977749e-07,4.32901962e-07
+  ,1.11268446e-06,-1.37230953e-06,4.75674337e-07,-1.01325087e-07
+  ,5.45893072e-07,-6.71145693e-07,3.35616369e-07}});
+
+//I scale A and B later so keep a copy
+static Chebyshev A_orig = A;
+static Chebyshev B_orig = B;
 
 using namespace Eigen;
 
@@ -463,10 +465,10 @@ int main(int argc, char* argv[]){
     problems = atoi(argv[5]);
   }
 
-  //std::string output_dir = (argc >= 7) ? argv[6] : "./results";
-  //std::string output = output_dir + "/output_" + std::to_string(n) + "_" + std::to_string(m);
+  std::string output_dir = (argc >= 7) ? argv[6] : "./results";
+  std::string output = output_dir + "/output_" + std::to_string(n) + "_" + std::to_string(m);
 
-  //std::ofstream outFile(output, std::ios::binary | std::ios::in | std::ios::out);
+  std::ofstream outFile(output, std::ios::binary | std::ios::in | std::ios::out);
   std::ifstream file(filename, std::ios::binary);
 
   //Seek to beginning, each problem has (n+1)*n/2 parameters, and a double has 8 bytes.
@@ -535,7 +537,7 @@ int main(int argc, char* argv[]){
 
       total_t += short_t;
     }
-    total_t *= 4;
+
     //Rescale our fields to change evolution time
     //This means our anneal time is always between 0 and 1
     A.coeffs *= total_t;
@@ -545,7 +547,6 @@ int main(int argc, char* argv[]){
 
     times = greedy_breakpoints(1e-5);
 
-    //I'm fairly convinced it's working up until here
 
     float current_t = 0;
     for (int i = 0; i < times.size(); i++){
@@ -554,7 +555,6 @@ int main(int argc, char* argv[]){
       //For each time step, we have to do three quantum walks
       //We first have to find the Legendre expansions for A and B
       Eigen::ArrayXf AB = legendre_coeffs(current_t, dt);
-      current_t += dt;
 
       Eigen::ArrayXf E = commutator_bounds(raw_norms, AB);
 
@@ -564,12 +564,11 @@ int main(int argc, char* argv[]){
             f(1,2)*(A_n[1]*H_P + B_n[1]*H_G) + \
             f(1,3)*(A_n[2]*H_P + B_n[2]*H_G))
 
+
       float coeff1 = f(1,1)*AB[0] - f(1,2) * AB[1] + f(1,3)*AB[2];
       float coeff2 = f(1,1)*AB[3] - f(1,2) * AB[4] + f(1,3)*AB[5];
 
       float gamma = coeff2/coeff1;
-
-      //std::cout << gamma << "\n";
 
       float onenorm = (E_abs + gamma*n);
       double scale = abs(coeff1) * onenorm;
@@ -596,7 +595,7 @@ int main(int argc, char* argv[]){
 
       Clenshaw(coeffs, psi, H_P, gamma, onenorm, psi_real);
 
-      //QW 3
+      //QW 3, same as QW1 but with a plus sign on the f(1,2) terms
 
       coeff1 = f(1,1)*AB[0] + f(1,2) * AB[1] + f(1,3)*AB[2];
       coeff2 = f(1,1)*AB[3] + f(1,2) * AB[4] + f(1,3)*AB[5];
@@ -612,13 +611,14 @@ int main(int argc, char* argv[]){
 
       //Approximation errors make this method non-unitary so we renormalise
       psi /= psi.matrix().norm();
+      current_t += dt;
     }
 
-  A.coeffs /= total_t;
-  B.coeffs /= total_t;
+  A = A_orig;
+  B = B_orig;
   float result = psi[E_loc]*psi[E_loc] + psi[E_loc+N]*psi[E_loc+N];
-  //outFile.seekp((start + problem) * sizeof(float));
-  //outFile.write(reinterpret_cast<char*>(&result), sizeof(float));
+  outFile.seekp((start + problem) * sizeof(float));
+  outFile.write(reinterpret_cast<char*>(&result), sizeof(float));
   std::cout << result << "\n";
   }
 }
