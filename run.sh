@@ -29,7 +29,7 @@ elif [ "$dataset" == "Tim" ] && [ "$executable" == "InfQW" ]; then
     m_values=(1 2 5 10 20)
 elif [ "$dataset" == "Tim" ] && [ "$executable" == "Anneal" ]; then
     n_values=(8 10 12 14 16 18)
-    m_values=(1 2 5 10 20 50)
+    m_values=(1 2 5 10 20)
 elif [ "$dataset" == "Adam" ] && [ "$executable" == "MultiQW" ]; then
     n_values=($(seq 5 18))
     m_values=(1 2 5 10 20)
