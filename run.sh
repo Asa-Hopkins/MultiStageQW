@@ -1,36 +1,46 @@
 #!/bin/bash
 
-# Usage: ./run.sh <num_threads> <dataset>
+# Usage: ./run.sh <num_threads> <dataset> <executable>
 # dataset: "Tim" or "Adam"
+# executable: "MultiQW", "InfQW" or "Anneal"
 
-if [ "$#" -ne 2 ]; then
-    echo "Usage: $0 <num_threads> <dataset>"
-    echo "  dataset: Tim, Adam or Inf"
+if [ "$#" -ne 3 ]; then
+    echo "Usage: $0 <num_threads> <dataset> <executable>"
+    echo "  dataset: Tim or Adam"
+    echo "  executable: MultiQW, InfQW or Anneal"
     exit 1
 fi
 
 num_threads=$1
 dataset=$2
+executable=$3
 
-# Configure dataset-specific parameters
+binary="./${executable}"
+
+# Configure dataset and executable specific parameters
 data_dir="./data/${dataset}"
-output_dir="./results/${dataset}"
-binary="./MultiQW"
+output_dir="./results/${dataset}_${executable}"
 
-if [ "$dataset" == "Tim" ]; then
+if [ "$dataset" == "Tim" ] && [ "$executable" == "MultiQW" ]; then
     n_values=(8 10 12 14 16 18)
     m_values=(1 2 5 10 20 50)
-elif [ "$dataset" == "Adam" ]; then
+elif [ "$dataset" == "Tim" ] && [ "$executable" == "InfQW" ]; then
+    n_values=(8 10)
+    m_values=(1 2 5 10 20)
+elif [ "$dataset" == "Tim" ] && [ "$executable" == "Anneal" ]; then
+    n_values=(8 10 12 14 16 18)
+    m_values=(1 2 5 10 20 50)
+elif [ "$dataset" == "Adam" ] && [ "$executable" == "MultiQW" ]; then
     n_values=($(seq 5 18))
     m_values=(1 2 5 10 20)
-elif [ "$dataset" == "Inf" ]; then
-  data_dir="./data/Adam"   # same source data as Adam
-  n_values=(5 6 7 8 9 10)
-  m_values=(1 2 5 10 20)
-  binary="./InfQW"
-  output_dir="./results/Inf"
+elif [ "$dataset" == "Adam" ] && [ "$executable" == "InfQW" ]; then
+    n_values=($(seq 5 10))
+    m_values=(1 2 5 10 20)
+elif [ "$dataset" == "Adam" ] && [ "$executable" == "Anneal" ]; then
+    n_values=($(seq 5 18))
+    m_values=(1 2 5 10 20)
 else
-    echo "Unknown dataset '$dataset'. Choose 'Tim', 'Adam' or 'Inf'."
+    echo "Unknown dataset '$dataset'. Choose 'Tim' or 'Adam'."
     exit 1
 fi
 
