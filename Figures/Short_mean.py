@@ -7,9 +7,6 @@ import pickle
 import seaborn as sns
 
 sns.set_palette("bright")
-plt.rc('text', usetex=True)
-plt.rc('font', family='serif')
-plt.rcParams['font.size'] = 8
 plt.rcParams.update({'errorbar.capsize': 1.5, 'lines.markeredgewidth': 0.5})
 
 def bootstrap(a, f, n=100):
@@ -98,17 +95,18 @@ def plot_regression(reg_points_list, labels, outfile_scaling, outfile_intercept)
     plt.show()
 
 if __name__ == "__main__":
-    adam_results = load_results("../results/Adam/output_*_*")
-    tim_results  = load_results("../results/Tim/output_*_*")
-    inf_results = load_results("../results/Inf/output_*_*")
+    adam_results = load_results("../results/Adam_MultiQW/output_*_*")
+    tim_results  = load_results("../results/Tim_MultiQW/output_*_*")
+    inf_results = load_results("../results/Adam_InfQW/output_*_*")
+    DW_results = load_results("../results/Adam_Anneal/output_*_*")
+
+    
 
     reg1 = plot_results(adam_results, 'short_median.pdf')
     reg2 = plot_results(tim_results,  'hard_median.pdf')
     reg3 = plot_results(inf_results,  'inf_median.pdf', marker = 'x')
+    reg4 = plot_results(DW_results,  'DW_median.pdf')
     
 
     labels = ['Short time average', 'Infinite time average']
     plot_regression([reg1, reg3], labels, 'scaling_cropped.pdf', 'intercept.pdf')
-
-#    labels = ['Short time average', 'Short time average, hard problems', 'Infinite time average']
-#    plot_regression([reg1, reg2, reg3], labels, 'scaling_cropped.pdf', 'intercept.pdf')
