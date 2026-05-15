@@ -13,8 +13,7 @@ plt.rc('font', family='serif')
 plt.rcParams['font.size'] = 14
 plt.rcParams.update({'errorbar.capsize': 1.5, 'lines.markeredgewidth': 0.5})
 
-
-def lookups():
+def lookups(cheb = False):
     #We need functions that let us map a ratio of H_P and H_G to a point in the annealing schedule
     #For reference, we will use D-Wave's Fast Annealing schedule on Advantage2 1.6
     #Multiply by 2*pi to write in terms of h-bar rather than h
@@ -24,8 +23,8 @@ def lookups():
             if row[0] == 's':
                 continue
             s.append(float(row[0]))
-            A.append(float(row[1])*2*np.pi)
-            B.append(float(row[2])*2*np.pi)
+            A.append(float(row[1])*np.pi)
+            B.append(float(row[2])*np.pi)
 
     # Trim to where A reaches zero
     if 0 in A:
@@ -33,6 +32,17 @@ def lookups():
     else:
         stop = len(A)
     s, A, B = [np.array(x[:stop]) for x in (s, A, B)]
+    if cheb:
+        V = np.polynomial.chebyshev.chebvander(2*s - 1, 50)
+            
+        A_cheb, r, *_ = np.linalg.lstsq(V, A, rcond=None)
+        
+        #Output as C array
+        print(f"{{{', '.join(map(str, A_cheb))}}}")
+
+        B_cheb, r, *_ = np.linalg.lstsq(V, B, rcond=None)
+        print(f"{{{', '.join(map(str, B_cheb))}}}")
+        
 
     gamma = A / B
     gs = scipy.interpolate.CubicSpline(gamma[::-1], s[::-1])
@@ -40,7 +50,8 @@ def lookups():
     sb = scipy.interpolate.CubicSpline(s, B)
     return gs, sa, sb
 
-gs, sa, sb = lookups()
+gs, sa, sb = lookups(cheb = True)
+#die
 
 # Define time-dependent coefficients A(t) and B(t)
 # Linear schedule for now
@@ -149,10 +160,38 @@ def anneal_time(T):
 def walk_time(m, problem, walk_data):
     #Wall clock time and success probability for a quantum walk run
     d = walk_data[(m, problem)]
-    total = sum(
-        g / sa(gs(g)) * 1e-9 * dt
-        for dt, g in zip(d['times'], d['gammas'])
-    )
+
+    total = 0
+    if m == 1600:
+        #Approximate infinite stage anneal schedule by smoothing the 1600 stage schedule
+        t = []
+        a = []
+        b = []
+        for dt, g in zip(d['times'], d['gammas']):
+            s = gs(g)
+            if s < 0:
+                s = 0
+            total += g / sa(s) * 1e-9 * dt
+            t.append(total)
+            a.append(sa(s))
+            b.append(sb(s))
+        t = np.array(t)
+
+        #Fit Chebyshev polynomial
+        V = np.polynomial.chebyshev.chebvander(2*t/max(t) - 1, 30)
+        A_cheb, r, *_ = np.linalg.lstsq(V, a, rcond=None)
+        #Output as C array
+        print(f"{{{', '.join(map(str, A_cheb))}}}")
+        
+        B_cheb, r, *_ = np.linalg.lstsq(V, b, rcond=None)
+        print(f"{{{', '.join(map(str, B_cheb))}}}")
+    else: 
+        for dt, g in zip(d['times'], d['gammas']):
+            s = gs(g)
+            if s < 0:
+                s = 0
+#            total += g / sa(s) * 1e-9 * dt
+            total += 1e-9 * dt / sb(s)
     # Factor of 1.5 since we sample uniformly from [t_s, 2*t_s]
     return 1.5 * total, d['success_prob']
 
@@ -193,7 +232,7 @@ def run_annealing(n, problem_num, walk_data, m_values):
             t, p = walk_time(m, problem_num, walk_data)
             walk_times.append(1e9 * t * scale)
             walk_probs.append(p)
-
+    return
     # Set up QuTiP operators
     H_P_qt = qt.Qobj(scipy.sparse.diags(H_P_diag))
     H_G_qt = qt.Qobj(H_G)
@@ -203,7 +242,7 @@ def run_annealing(n, problem_num, walk_data, m_values):
     psi0 = qt.Qobj(np.ones(N) / N**0.5)
 
     anneal_x, anneal_y = [], []
-    for T in [2**(a/8) for a in range(-36,24)]:
+    for T in [2**(a/8) for a in range(-36,32)]:
         args = {'T': T}
         t_list = np.linspace(0, T, 2 + int(T)*2)
         result = qt.sesolve(H, psi0, t_list, args=args)
