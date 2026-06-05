@@ -5,6 +5,8 @@ This repository contains the simulation code for the paper ["Multi-stage quantum
 
 The main innovations here are an improvement to the classic method of Chebyshev expansion for evaluating matrix exponentials, and a matrix-free method of calculating H|ψ>. The implementation is vectorised and tries to be efficient with cache usage and memory accesses, as memory bandwidth is the bottleneck.
 
+I have now also implemented quantum annealing, using commutator-free exponential time-integration to break a quantum anneal up into quantum walk stages. Parallelism is achieved by simply launching the process multiple times, as separate problem instances are embarrassingly parallel.
+
 The aim of the method here is to provide reasonable choices for hopping rate and evolution time for each stage without needing to tune or optimise them. I invite you to try different heuristics and see what works, but for now only the heuristics in my paper above are available.
 
 ## Requirements
