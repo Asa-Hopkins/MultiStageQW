@@ -9,10 +9,18 @@
 
 #Throughout, complex arrays are stored with a contiguous real part followed by a contiguous imaginary part 
 
+#In theory, could perform setup on the GPU, but I don't think it'd be worth the effort
+
 import taichi as ti
 import numpy as np
-import pandas as pd
 import time
+
+#Number of qubits
+n = 14
+m = 5
+N = 2**n
+
+ti.init(arch=ti.gpu)  # use ti.gpu if available
 
 #Return the bessel functions of the first kind, J_m(a) for m up to n
 #Needed for Chebyshev series of exp(ix)
@@ -71,8 +79,6 @@ def unpack_lower_triangle(J_flat, n):
 
     return J_full/2
 
-ti.init(arch=ti.cpu)  # use ti.gpu if available
-
 @ti.func
 def get_spin(state_idx: ti.i32, bit: ti.i32) -> ti.f32:
     b = (state_idx >> bit) & 1
@@ -112,37 +118,72 @@ def build_hamiltonian_batch(
             energy += s_i * h[i, b]
         H_out[b, state] = energy
 
-@ti.kernel
-def Clenshaw_step(b1: ti.types.ndarray(), b2: ti.types.ndarray(),
-                  psi: ti.types.ndarray(), H_P: ti.types.ndarray(),
-                  n: ti.i32, scales: ti.types.ndarray(), gamma: ti.types.ndarray(), coef: ti.f32):
-    #Sets b2 = coef*psi + 2*(H @ b1) - b2
-    #where H = scale*(H_P - gamma*H_G)
-    for i in range(b1.shape[0]):
-        s = 0.0
-        for k in range(n):
-            s += b1[i ^ (1 << k)]
-        b2[i] = coef*psi[i] + 2*(H_P[i]*b1[i] - gamma[i>>n]*s)*scales[i>>n] - b2[i]
 
-def Clenshaw(coeffs: ti.types.ndarray(), psi: ti.types.ndarray(),
-             H_P: ti.types.ndarray(), gamma: ti.types.ndarray(), scales: ti.types.ndarray(), n: ti.i32):
+#I don't like having three copies of the same function but these are the critical loops
+#so I'd rather not have messy logic inside them
+#They each perform a single recurrence of the clenshaw algorithm
+@ti.kernel
+def Clenshaw_step_final(b1: ti.template(), b2: ti.template(),
+                  psi: ti.template(), H_P: ti.template(),
+                  n: ti.i32, scales: ti.template(), gamma: ti.template(), coef: ti.f32):
+    N = psi.shape[0]//2
+    for i in range(N):
+        batch = i >> n
+        s_re = 0.0
+        s_im = 0.0
+        for k in range(n):
+            s_re += b1[i ^ (1 << k)]
+            s_im += b1[N + (i ^ (1 << k))]
+        b2[i] = coef*psi[i] + (H_P[i]*b1[i] - gamma[batch]*s_re)*scales[batch] - b2[i]
+        b2[i + N] = coef*psi[i + N] + (H_P[i]*b1[i + N] - gamma[batch]*s_im)*scales[batch] - b2[i + N]
+
+@ti.kernel
+def Clenshaw_step_even(b1: ti.template(), b2: ti.template(),
+                  psi: ti.template(), H_P: ti.template(),
+                  n: ti.i32, scales: ti.template(), gamma: ti.template(), coef: ti.f32):
+    N = psi.shape[0]//2
+    for i in range(N):
+        batch = i >> n
+        s_re = 0.0
+        s_im = 0.0
+        for k in range(n):
+            s_re += b1[i ^ (1 << k)]
+            s_im += b1[N + (i ^ (1 << k))]
+        b2[i] = coef*psi[i] + 2*(H_P[i]*b1[i] - gamma[batch]*s_re)*scales[batch] - b2[i]
+        b2[i + N] = coef*psi[i + N] + 2*(H_P[i]*b1[i + N] - gamma[batch]*s_im)*scales[batch] - b2[i + N]
+        
+@ti.kernel
+def Clenshaw_step_odd(b1: ti.template(), b2: ti.template(),
+                  psi: ti.template(), H_P: ti.template(),
+                  n: ti.i32, scales: ti.template(), gamma: ti.template(), coef: ti.f32):
+    N = psi.shape[0]//2
+    for i in range(N):
+        batch = i >> n
+        s_re = 0.0
+        s_im = 0.0
+        for k in range(n):
+            s_re += b1[i ^ (1 << k)]
+            s_im += b1[N + (i ^ (1 << k))]
+        b2[i] = -coef*psi[i+N] + 2*(H_P[i]*b1[i] - gamma[batch]*s_re)*scales[batch] - b2[i]
+        b2[i + N] = coef*psi[i] + 2*(H_P[i]*b1[i + N] - gamma[batch]*s_im)*scales[batch] - b2[i + N]
+
+
+def Clenshaw(coeffs: ti.template(), psi: ti.template(),
+             H_P: ti.template(), b1: ti.template(), b2: ti.template(),
+             gamma: ti.template(), scales: ti.template(), n: ti.i32):
     #Calculates exp(iH) @ psi, where "coeffs" gives the coefficients of exp(ix) in the Chebyshev basis
-    N = psi.shape[0] // 2
-    b1 = np.zeros(2*N, dtype=np.float32)
-    b2 = np.zeros(2*N, dtype=np.float32)
+    #Now with no memory transfers between CPU and GPU
+    b1.fill(0.0)
+    b2.fill(0.0)
     for r in range(len(coeffs)-1,0,-1):
         if r&1:
-            Clenshaw_step(b1[:N], b2[:N], psi[N:], H_P, n, scales, gamma, -coeffs[r])
-            Clenshaw_step(b1[N:], b2[N:], psi[:N], H_P, n, scales, gamma, coeffs[r])
+            Clenshaw_step_odd(b1, b2, psi, H_P, n, scales, gamma, coeffs[r])
         else:
-            Clenshaw_step(b1[:N], b2[:N], psi[:N], H_P, n, scales, gamma, coeffs[r])
-            Clenshaw_step(b1[N:], b2[N:], psi[N:], H_P, n, scales, gamma, coeffs[r])
+            Clenshaw_step_even(b1, b2, psi, H_P, n, scales, gamma, coeffs[r])
         b2, b1 = b1, b2
-    
-    Clenshaw_step(b1[:N], b2[:N], psi[:N], H_P, n, scales/2, gamma, coeffs[0])
-
-    Clenshaw_step(b1[N:], b2[N:], psi[N:], H_P, n, scales/2, gamma, coeffs[0])
-    return b2
+        
+    Clenshaw_step_final(b1, b2, psi, H_P, n, scales, gamma, coeffs[0])
+    return b2, b1, psi
 
 #Uses an estimate of the energy spread to calculate gammas
 def compute_gammas(n, m, E_est):
@@ -150,7 +191,6 @@ def compute_gammas(n, m, E_est):
     for i in range(0,m):
         gammas[i] = E_est / np.tan(np.pi * (i+1) / (2*m + 2)) / 2 / n
     return gammas
-
 
 #Use a greedy local search from random samples to estimate energy spread
 @ti.kernel
@@ -204,11 +244,6 @@ def greedy_est(
 
         E_est[b] = max_energy - min_energy
 
-#Number of qubits
-n = 15
-m = 5
-N = 2**n
-
 #Ising model parameters
 total_params = n*(n+1)//2
 J_params = n*(n-1)//2
@@ -217,6 +252,8 @@ h_params = n
 #Load all instances at once
 instances = np.fromfile(f"./data/Adam/SK_{n}n").reshape((-1, total_params))
 batch_size = instances.shape[0]
+
+total_states = N*batch_size
 
 J = instances[:, :J_params]
 
@@ -227,33 +264,43 @@ J_full = unpack_lower_triangle(np.ascontiguousarray(J.T, dtype=np.float32), n)
 h = np.ascontiguousarray(instances[:, J_params:].T, dtype=np.float32)
 
 #Build problem Hamiltonians, and energy spreads
-H_P = np.zeros((batch_size, N), dtype=np.float32)
+H_P_cpu = np.zeros((batch_size, N), dtype=np.float32)
 delta2 = np.zeros(batch_size, dtype=np.float32)
-build_hamiltonian_batch(J_full, h, H_P, delta2, n, N)
-#Can calculate from J
-test = 0
+build_hamiltonian_batch(J_full, h, H_P_cpu, delta2, n, N)
 
 #We have to scale each Hamiltonian separately. We first need to find the largest spectral norm that appears
-sizes = np.max(np.abs(H_P), axis = 1)
+sizes = np.max(np.abs(H_P_cpu), axis = 1)
 
-exact_spreads = np.max(H_P, axis = 1) - np.min(H_P, axis = 1)
+exact_spreads = np.max(H_P_cpu, axis = 1) - np.min(H_P_cpu, axis = 1)
 
 E_est = np.zeros_like(exact_spreads)
 
 #Use 10 random samples for now
-greedy_est(H_P, E_est, 10, n)
+greedy_est(H_P_cpu, E_est, 10, n)
 
 gammas = compute_gammas(n, m, E_est)
 
 #Also need ground states later
-E_min = np.argmin(H_P, axis = 1)
+E_min = np.argmin(H_P_cpu, axis = 1)
 
 #We just treat H_P as a huge vector since it's diagonal
-H_P = H_P.flatten()
+H_P_cpu = H_P_cpu.flatten()
 
 #Start in uniform superposition
-psi = np.ones(2*N*batch_size, dtype=np.float32)/(N**0.5)
-psi[N*batch_size:] = 0
+psi_cpu = np.ones(2*N*batch_size, dtype=np.float32)/(N**0.5)
+psi_cpu[N*batch_size:] = 0
+
+#Allocate all GPU memory now
+psi = ti.field(ti.f32, shape=2*total_states)
+b1 = ti.field(ti.f32, shape=2*total_states)
+b2 = ti.field(ti.f32, shape=2*total_states)
+
+H_P = ti.field(ti.f32, shape=total_states)
+gamma_gpu = ti.field(ti.f32, shape=batch_size)
+scale = ti.field(ti.f32, shape=batch_size)
+
+H_P.from_numpy(H_P_cpu)
+psi.from_numpy(psi_cpu)
 
 t = time.time()
 for i in range(m):
@@ -279,8 +326,12 @@ for i in range(m):
     #So we need to pass (H*t)/max_bound in to our polynomial to get exp(itH)
     scales = times / max_bound
 
+    scale.from_numpy(scales)
+    gamma_gpu.from_numpy(gamma)
+    print(i)
     #Apply the Clenshaw algorithm
-    psi = Clenshaw(sincos(max_bound), psi, H_P, gamma, scales, n)
+    psi, b1, b2 = Clenshaw(sincos(max_bound), psi, H_P, b1, b2, gamma_gpu, scale, n)
+psi = psi.to_numpy()
 success_probs = []
 
 #Read out success probabilities
