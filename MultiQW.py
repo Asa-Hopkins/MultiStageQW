@@ -331,12 +331,11 @@ for i in range(m):
     print(i)
     #Apply the Clenshaw algorithm
     psi, b1, b2 = Clenshaw(sincos(max_bound), psi, H_P, b1, b2, gamma_gpu, scale, n)
-psi = psi.to_numpy()
 success_probs = []
 
 #Read out success probabilities
 for i in range(batch_size):
     min_loc = E_min[i]
-    success_probs.append(np.sum(psi[N*i+min_loc]**2 + psi[N*(i+batch_size)+min_loc]**2))
+    success_probs.append(psi[N*i+min_loc]**2 + psi[N*(i+batch_size)+min_loc]**2)
 print(time.time() - t)
 print(np.log2(np.median(success_probs)))
